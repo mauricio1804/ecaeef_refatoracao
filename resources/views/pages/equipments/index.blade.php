@@ -15,7 +15,7 @@ new #[Title('Equipamentos')] class extends Component {
     {
         return [
             'name' => 'required|string|max:255',
-            'asset_number' => 'nullable|string|max:255|unique:equipments,asset_number,' . ($this->editing?->id ?? 'NULL'),
+            'asset_number' => 'required|string|max:255|unique:equipments,asset_number,' . ($this->editing?->id ?? 'NULL'),
         ];
     }
 
@@ -105,7 +105,7 @@ new #[Title('Equipamentos')] class extends Component {
             
             <div class="space-y-6 mt-6">
                 <flux:input wire:model="name" :label="__('Nome')" required />
-                <flux:input wire:model="asset_number" :label="__('Identificador')" />
+                <flux:input wire:model="asset_number" :label="__('Identificador')" required />
             </div>
 
             <div class="flex mt-6 gap-2">
