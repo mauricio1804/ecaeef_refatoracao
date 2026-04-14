@@ -5,27 +5,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
-class Equipment extends Model
+class CourseClass extends Model
 {
-    /** @use HasFactory<\Database\Factories\EquipmentFactory> */
     use HasFactory, SoftDeletes;
 
-    protected $table = 'equipments';
+    protected $table = 'classes';
 
     protected $fillable = [
         'name',
-        'asset_number',
     ];
 
-    /**
-     * The classes that belong to the equipment.
-     */
-    public function classes(): BelongsToMany
+    public function equipments(): BelongsToMany
     {
-        return $this->belongsToMany(CourseClass::class, 'class_equipments', 'equipment_id', 'class_id')
+        return $this->belongsToMany(Equipment::class, 'class_equipments', 'class_id', 'equipment_id')
                     ->withPivot('quantity')
                     ->withTimestamps();
     }

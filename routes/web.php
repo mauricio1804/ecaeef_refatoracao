@@ -6,7 +6,7 @@ use Laravel\Fortify\Features;
 Route::middleware(['auth'])->group(function () {
     Route::view('/', 'dashboard')->name('home');
 
-    Route::livewire('equipments', 'pages::equipments.index')->name('equipments.index');
+    Route::livewire('inventory', 'pages::inventory.index')->name('inventory.index');
 
     Route::redirect('settings', 'settings/profile');
 
