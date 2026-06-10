@@ -1,4 +1,4 @@
-# 🚀 Refatoração de Sistema Web com Laravel e Livewire
+# Refatoração de Sistema Web eCAEEF
 
 Projeto desenvolvido com o objetivo de remodelar e dar uma nova aparencia ao sistrema eCAEEF.
 
@@ -10,7 +10,7 @@ A aplicação utiliza uma arquitetura baseada em Laravel 13.
 
 ---
 
-## 📋 Objetivos do Projeto
+## Objetivos do Projeto
 
 * Aplicar técnicas de refatoração em aplicações web.
 * Melhorar a organização e a manutenção do código.
@@ -18,7 +18,7 @@ A aplicação utiliza uma arquitetura baseada em Laravel 13.
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## Tecnologias Utilizadas
 
 ### Backend
 
@@ -45,22 +45,22 @@ A aplicação utiliza uma arquitetura baseada em Laravel 13.
 
 ---
 
-## ✨ Funcionalidades
+## Funcionalidades
 
-### 🔐 Autenticação
+### Autenticação
 
 * Login de usuários
 * Cadastro de usuários
 * Recuperação de senha
 * Gerenciamento de perfil
 
-### ⚙️ Configurações
+### Configurações
 
 * Alteração de perfil
 * Configurações de segurança
 * Configurações de aparência
 
-### 🎨 Interface Moderna
+### Interface Moderna
 
 * Componentes reutilizáveis
 * Layout responsivo
@@ -90,7 +90,7 @@ routes/
 ```
 
 ---
-## 👨‍💻 Autor
+## Autor
 
 Maurício Fabiano Azevedo Filho
 
