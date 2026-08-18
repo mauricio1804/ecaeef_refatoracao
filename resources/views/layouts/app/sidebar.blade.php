@@ -18,6 +18,9 @@
                     <flux:sidebar.item icon="layout-grid" :href="route('inventory.index')" :current="request()->routeIs('inventory.*')" wire:navigate>
                         {{ __('Equipamentos') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="arrows-right-left" :href="route('loans.index')" :current="request()->routeIs('loans.*')" wire:navigate>
+                        {{ __('Empréstimos') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 

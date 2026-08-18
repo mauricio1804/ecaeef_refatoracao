@@ -7,6 +7,7 @@ Route::middleware(['auth'])->group(function () {
     Route::view('/', 'dashboard')->name('home');
 
     Route::livewire('inventory', 'pages::inventory.index')->name('inventory.index');
+    Route::livewire('loans', 'pages::loans.index')->name('loans.index');
 
     Route::redirect('settings', 'settings/profile');
 
