@@ -1,13 +1,16 @@
 <?php
 
 use App\Enums\LoanItemStatus;
+use App\Models\ClassEquipment;
+use App\Models\CourseClass;
 use App\Models\Equipment;
 use App\Models\EquipmentLoan;
 use App\Models\EquipmentLoanItem;
 use App\Models\Loanee;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Title;
 use Livewire\Component;
-use Illuminate\Support\Collection;
 
 new #[Title('Empréstimos')] class extends Component {
     public string $tab = 'loans';
@@ -98,33 +101,79 @@ new #[Title('Empréstimos')] class extends Component {
 
         $this->validate($rules);
 
-        // 1. Resolve Loanee
-        $loaneeId = $this->loanee_id;
-        if ($this->isCreatingLoanee) {
-            $loanee = Loanee::create([
-                'name' => $this->newLoaneeName,
-                'document_number' => $this->newLoaneeDocument ?: null,
-                'contact' => $this->newLoaneeContact ?: null,
-            ]);
-            $loaneeId = $loanee->id;
-        }
-
-        // 2. Create Equipment Loan
-        $loan = EquipmentLoan::create([
-            'loanee_id' => $loaneeId,
-            'loaned_at' => $this->loaned_at,
-            'returns_at' => $this->returns_at ?: null,
-        ]);
-
-        // 3. Create Items
+        // Group total requested quantities by equipment
+        $requestedTotals = [];
         foreach ($this->loanItems as $item) {
-            EquipmentLoanItem::create([
-                'loan_id' => $loan->id,
-                'equipment_id' => $item['equipment_id'],
-                'quantity' => $item['quantity'],
-                'status' => LoanItemStatus::BORROWED,
-            ]);
+            $eqId = (int) $item['equipment_id'];
+            $qty = (int) $item['quantity'];
+            $requestedTotals[$eqId] = ($requestedTotals[$eqId] ?? 0) + $qty;
         }
+
+        // Validate stock availability
+        $hasStockError = false;
+        foreach ($this->loanItems as $index => $item) {
+            $eqId = (int) $item['equipment_id'];
+            $available = (int) ClassEquipment::where('equipment_id', $eqId)->sum('quantity');
+            $requested = $requestedTotals[$eqId];
+
+            if ($requested > $available) {
+                $equipment = Equipment::find($eqId);
+                $name = $equipment ? $equipment->name : 'Equipamento';
+                $this->addError("loanItems.{$index}.quantity", "Estoque insuficiente para '{$name}'. Disponível: {$available}.");
+                $hasStockError = true;
+            }
+        }
+
+        if ($hasStockError) {
+            return;
+        }
+
+        DB::transaction(function () {
+            // 1. Resolve Loanee
+            $loaneeId = $this->loanee_id;
+            if ($this->isCreatingLoanee) {
+                $loanee = Loanee::create([
+                    'name' => $this->newLoaneeName,
+                    'document_number' => $this->newLoaneeDocument ?: null,
+                    'contact' => $this->newLoaneeContact ?: null,
+                ]);
+                $loaneeId = $loanee->id;
+            }
+
+            // 2. Create Equipment Loan
+            $loan = EquipmentLoan::create([
+                'loanee_id' => $loaneeId,
+                'loaned_at' => $this->loaned_at,
+                'returns_at' => $this->returns_at ?: null,
+            ]);
+
+            // 3. Create Items and deduct stock
+            foreach ($this->loanItems as $item) {
+                $eqId = (int) $item['equipment_id'];
+                $qty = (int) $item['quantity'];
+
+                EquipmentLoanItem::create([
+                    'loan_id' => $loan->id,
+                    'equipment_id' => $eqId,
+                    'quantity' => $qty,
+                    'status' => LoanItemStatus::BORROWED,
+                ]);
+
+                $remaining = $qty;
+                $assignments = ClassEquipment::where('equipment_id', $eqId)
+                    ->where('quantity', '>', 0)
+                    ->get();
+
+                foreach ($assignments as $assignment) {
+                    if ($remaining <= 0) {
+                        break;
+                    }
+                    $deduct = min($assignment->quantity, $remaining);
+                    $assignment->decrement('quantity', $deduct);
+                    $remaining -= $deduct;
+                }
+            }
+        });
 
         $this->modal('loan-form')->close();
         $this->reset(['loanee_id', 'newLoaneeName', 'newLoaneeDocument', 'newLoaneeContact', 'isCreatingLoanee']);
@@ -140,12 +189,53 @@ new #[Title('Empréstimos')] class extends Component {
     public function updateItemStatus(int $itemId, int $statusValue): void
     {
         $item = EquipmentLoanItem::find($itemId);
-        if ($item) {
-            $status = LoanItemStatus::tryFrom($statusValue);
-            if ($status !== null) {
-                $item->update(['status' => $status]);
-            }
+        if (!$item) {
+            return;
         }
+
+        $newStatus = LoanItemStatus::tryFrom($statusValue);
+        if ($newStatus === null || $item->status === $newStatus) {
+            return;
+        }
+
+        $prevStatus = $item->status;
+
+        DB::transaction(function () use ($item, $prevStatus, $newStatus) {
+            // Se foi marcado como DEVOLVIDO a partir de outro status -> retorna ao estoque
+            if ($prevStatus !== LoanItemStatus::RETURNED && $newStatus === LoanItemStatus::RETURNED) {
+                $assignment = ClassEquipment::where('equipment_id', $item->equipment_id)->first();
+                if ($assignment) {
+                    $assignment->increment('quantity', $item->quantity);
+                } else {
+                    $defaultClass = CourseClass::first();
+                    if ($defaultClass) {
+                        ClassEquipment::create([
+                            'equipment_id' => $item->equipment_id,
+                            'class_id' => $defaultClass->id,
+                            'quantity' => $item->quantity,
+                        ]);
+                    }
+                }
+            }
+            // Se voltou de DEVOLVIDO para outro status -> deduz do estoque novamente
+            elseif ($prevStatus === LoanItemStatus::RETURNED && $newStatus !== LoanItemStatus::RETURNED) {
+                $remaining = (int) $item->quantity;
+                $assignments = ClassEquipment::where('equipment_id', $item->equipment_id)
+                    ->where('quantity', '>', 0)
+                    ->get();
+
+                foreach ($assignments as $assignment) {
+                    if ($remaining <= 0) {
+                        break;
+                    }
+                    $deduct = min($assignment->quantity, $remaining);
+                    $assignment->decrement('quantity', $deduct);
+                    $remaining -= $deduct;
+                }
+            }
+
+            $item->update(['status' => $newStatus]);
+        });
 
         if ($this->selectedLoan) {
             $this->selectedLoan->refresh()->load(['loanee', 'items.equipment']);
@@ -154,9 +244,29 @@ new #[Title('Empréstimos')] class extends Component {
 
     public function returnAllItems(int $loanId): void
     {
-        EquipmentLoanItem::where('loan_id', $loanId)
-            ->where('status', LoanItemStatus::BORROWED)
-            ->update(['status' => LoanItemStatus::RETURNED]);
+        $items = EquipmentLoanItem::where('loan_id', $loanId)
+            ->where('status', '!=', LoanItemStatus::RETURNED)
+            ->get();
+
+        DB::transaction(function () use ($items) {
+            foreach ($items as $item) {
+                $assignment = ClassEquipment::where('equipment_id', $item->equipment_id)->first();
+                if ($assignment) {
+                    $assignment->increment('quantity', $item->quantity);
+                } else {
+                    $defaultClass = CourseClass::first();
+                    if ($defaultClass) {
+                        ClassEquipment::create([
+                            'equipment_id' => $item->equipment_id,
+                            'class_id' => $defaultClass->id,
+                            'quantity' => $item->quantity,
+                        ]);
+                    }
+                }
+
+                $item->update(['status' => LoanItemStatus::RETURNED]);
+            }
+        });
 
         if ($this->selectedLoan) {
             $this->selectedLoan->refresh()->load(['loanee', 'items.equipment']);
@@ -165,8 +275,18 @@ new #[Title('Empréstimos')] class extends Component {
 
     public function deleteLoan(EquipmentLoan $loan): void
     {
-        $loan->items()->delete();
-        $loan->delete();
+        DB::transaction(function () use ($loan) {
+            foreach ($loan->items as $item) {
+                if ($item->status !== LoanItemStatus::RETURNED) {
+                    $assignment = ClassEquipment::where('equipment_id', $item->equipment_id)->first();
+                    if ($assignment) {
+                        $assignment->increment('quantity', $item->quantity);
+                    }
+                }
+                $item->delete();
+            }
+            $loan->delete();
+        });
     }
 
     public function createLoanee(): void
@@ -249,7 +369,7 @@ new #[Title('Empréstimos')] class extends Component {
 
     public function getEquipmentsListProperty(): Collection
     {
-        return Equipment::orderBy('name')->get();
+        return Equipment::with('classes')->orderBy('name')->get();
     }
 }; ?>
 
@@ -440,7 +560,7 @@ new #[Title('Empréstimos')] class extends Component {
                             <div class="flex-1">
                                 <flux:select wire:model="loanItems.{{ $index }}.equipment_id" placeholder="Selecione o equipamento..." required>
                                     @foreach ($this->equipmentsList as $equipment)
-                                        <flux:select.option :value="$equipment->id">{{ $equipment->name }} ({{ $equipment->asset_number ?? '-' }})</flux:select.option>
+                                        <flux:select.option :value="$equipment->id">{{ $equipment->name }} ({{ $equipment->asset_number ?? '-' }}) - {{ __('Estoque') }}: {{ $equipment->classes->sum('pivot.quantity') }}</flux:select.option>
                                     @endforeach
                                 </flux:select>
                             </div>
